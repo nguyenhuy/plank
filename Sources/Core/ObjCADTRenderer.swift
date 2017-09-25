@@ -105,7 +105,7 @@ struct ObjCADTRenderer: ObjCFileRenderer {
     }
 
     func renderDictionaryRepresentation() -> ObjCIR.Method {
-            return ObjCIR.method("- (id)dictionaryRepresentation") {
+            return ObjCIR.method("- (NSDictionary *)dictionaryRepresentation") {
                 [
                     ObjCIR.switchStmt("self.internalType") {
                         self.dataTypes.enumerated().map { (index, schemaObj) -> ObjCIR.SwitchCase in
