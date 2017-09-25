@@ -13,7 +13,7 @@ extension ObjCModelRenderer {
         let dictionary = "dict"
         let props = self.properties.map { (param, schemaObj) -> String in
             ObjCIR.ifStmt("_"+"\(self.dirtyPropertiesIVarName).\(dirtyPropertyOption(propertyName: param, className: self.className))") {
-                [renderAddObjectStatement(param, schemaObj.schema, dictionary)]
+                [renderAddObjectStatement(param, schemaObj.schema, dictionary, true)]
             }
         }.joined(separator: "\n")
         return ObjCIR.method("- (NSDictionary *)dictionaryRepresentation") {[
@@ -27,8 +27,8 @@ extension ObjCModelRenderer {
 }
 
 extension ObjCFileRenderer {
-    fileprivate func renderAddObjectStatement(_ param: String, _ schema: Schema, _ dictionary: String, counter: Int = 0) -> String {
-        var propIVarName = "\(param.snakeCaseToPropertyName())"
+    fileprivate func renderAddObjectStatement(_ param: String, _ schema: Schema, _ dictionary: String, _ hasBackingIvar: Bool = false, counter: Int = 0) -> String {
+        let propIVarName = hasBackingIvar ? "_" + param.snakeCaseToPropertyName() : param
         switch schema {
         // TODO: After nullability PR landed we should revisit this and don't check for nil if
         //       the ivar is nonnull in all of this cases
@@ -80,7 +80,8 @@ extension ObjCFileRenderer {
                     let objcClass = self.objcClassNameFromSchema(ObjCADTRenderer.objectName(arraySchema), arraySchema)
                     return "[\(destArray) addObject:[(\(objcClass) *)\(processObject) dictionaryRepresentation]];"
                 case .oneOf(types: _):
-                    return "[\(destArray) addObject:[\(processObject) dictionaryRepresentation]];"
+                    let objcClass = self.objcClassNameFromSchema(param, arraySchema)
+                    return "[\(destArray) addObject:[(\(objcClass) *)\(processObject) dictionaryRepresentation]    ];"
                 case .array(itemType: let type):
                     let currentResult = "result\(arrayCounter)"
                     let parentResult = "result\(arrayCounter-1)"
@@ -98,7 +99,7 @@ extension ObjCFileRenderer {
                 case .map(valueType: .none):
                     return "[\(destArray) addObject:\(processObject)];"
                 case .map(valueType: .some(let valueType)):
-                    return self.renderAddObjectStatement(processObject, valueType, processObject)
+                    return self.renderAddObjectStatement(processObject, valueType, dictionary)
                 case .integer, .float, .boolean:
                     return "[\(destArray) addObject:@(\(processObject))] ];"
                 case .string(format: .none),
@@ -148,12 +149,12 @@ extension ObjCFileRenderer {
             case .map, .object, .array:
                 return
                     ObjCIR.ifElseStmt("\(propIVarName) != nil") {[
-                        self.renderAddObjectStatement(param, valueType, dictionary)
+                        self.renderAddObjectStatement(propIVarName, valueType, dictionary, false)
                     ]} {[
                         "[\(dictionary) setObject:[NSNull null] forKey:@\"\(param)\"];"
                     ]}
             case .reference(with: _):
-                let objcClass = self.objcClassNameFromSchema(ObjCADTRenderer.objectName(valueType), valueType);
+                let objcClass = self.objcClassNameFromSchema(ObjCADTRenderer.objectName(valueType), valueType)
                 return [
                     "NSMutableDictionary *items\(counter) = [NSMutableDictionary new];",
                     ObjCIR.forStmt("id key in \(propIVarName)") { [
@@ -180,7 +181,7 @@ extension ObjCFileRenderer {
                             let objcClass = self.objcClassNameFromSchema(ObjCADTRenderer.objectName(schema), schema)
                             return ObjCIR.caseStmt(self.className+propIVarName.snakeCaseToCamelCase()+"InternalType"+propName) {[
                                 "[\(dictionary) setObject:[(\(objcClass) *)\(propIVarName) dictionaryRepresentation] forKey:@\"\(param)\"];"
-                                ]}
+                            ]}
                         }
                     }
                 ]} {[
@@ -188,7 +189,7 @@ extension ObjCFileRenderer {
                 ]}
         case .reference(with: let ref):
             return ref.force().map {
-                renderAddObjectStatement(param, $0, dictionary)
+                renderAddObjectStatement(param, $0, dictionary, hasBackingIvar)
                 } ?? {
                     assert(false, "TODO: Forward optional across methods")
                     return ""
