@@ -28,16 +28,17 @@ extension ObjCModelRenderer {
 
 extension ObjCFileRenderer {
     fileprivate func renderAddObjectStatement(_ param: String, _ schema: Schema, _ dictionary: String, counter: Int = 0) -> String {
-        var propIVarName = "_\(param.snakeCaseToPropertyName())"
+        var propIVarName = "\(param.snakeCaseToPropertyName())"
         switch schema {
         // TODO: After nullability PR landed we should revisit this and don't check for nil if
         //       the ivar is nonnull in all of this cases
         case .boolean, .float, .integer:
             return "[\(dictionary) setObject:@(\(propIVarName)) forKey: @\"\(param)\" ];"
         case .object:
+            let objcClass = self.objcClassNameFromSchema(ObjCADTRenderer.objectName(schema), schema)
             return
                 ObjCIR.ifElseStmt("\(propIVarName) != nil") {[
-                    "[\(dictionary) setObject:[\(propIVarName) dictionaryRepresentation] forKey:@\"\(param)\"];"
+                    "[\(dictionary) setObject:[(\(objcClass) *)\(propIVarName) dictionaryRepresentation] forKey:@\"\(param)\"];"
                 ]} {[
                     "[\(dictionary) setObject:[NSNull null] forKey:@\"\(param)\"];"
                 ]}
@@ -75,7 +76,10 @@ extension ObjCFileRenderer {
         case .array(itemType: let itemType?):
             func createArray(destArray: String, processObject: String, arraySchema: Schema, arrayCounter: Int = 0) -> String {
                 switch arraySchema {
-                case .reference, .object, .oneOf(types: _):
+                case .reference, .object:
+                    let objcClass = self.objcClassNameFromSchema(ObjCADTRenderer.objectName(arraySchema), arraySchema)
+                    return "[\(destArray) addObject:[(\(objcClass) *)\(processObject) dictionaryRepresentation]];"
+                case .oneOf(types: _):
                     return "[\(destArray) addObject:[\(processObject) dictionaryRepresentation]];"
                 case .array(itemType: let type):
                     let currentResult = "result\(arrayCounter)"
@@ -84,11 +88,11 @@ extension ObjCFileRenderer {
                     return [
                         "NSArray *items\(arrayCounter) = \(processObject);",
                         "NSMutableArray *\(currentResult) = [NSMutableArray arrayWithCapacity:items\(arrayCounter).count];",
-                        ObjCIR.forStmt("id \(currentObj) in items\(arrayCounter)") { [
+                        ObjCIR.forStmt("id \(currentObj) in items\(arrayCounter)") {[
                             ObjCIR.ifStmt("\(currentObj) != (id)kCFNull") { [
                                 createArray(destArray: currentResult, processObject: currentObj, arraySchema: type!, arrayCounter: arrayCounter+1)
-                                ]}
-                            ]},
+                            ]}
+                        ]},
                         "[\(parentResult) addObject:\(currentResult)];"
                     ].joined(separator: "\n")
                 case .map(valueType: .none):
@@ -149,11 +153,12 @@ extension ObjCFileRenderer {
                         "[\(dictionary) setObject:[NSNull null] forKey:@\"\(param)\"];"
                     ]}
             case .reference(with: _):
+                let objcClass = self.objcClassNameFromSchema(ObjCADTRenderer.objectName(valueType), valueType);
                 return [
                     "NSMutableDictionary *items\(counter) = [NSMutableDictionary new];",
                     ObjCIR.forStmt("id key in \(propIVarName)") { [
                         ObjCIR.ifStmt("[\(propIVarName) objectForKey:key] != (id)kCFNull") { [
-                            "[items\(counter) setObject:[[\(propIVarName) objectForKey:key] dictionaryRepresentation] forKey:key];"
+                            "[items\(counter) setObject:[(\(objcClass) *)[\(propIVarName) objectForKey:key] dictionaryRepresentation] forKey:key];"
                         ]}
                     ]},
                     "[\(dictionary) setObject:items\(counter) forKey: @\"\(propIVarName)\" ];"
@@ -171,8 +176,10 @@ extension ObjCFileRenderer {
                 ObjCIR.ifElseStmt("\(propIVarName) != nil") {[
                     ObjCIR.switchStmt("\(propIVarName).internalType") {
                         avTypes.enumerated().map { (_, schema) -> ObjCIR.SwitchCase in
-                            return ObjCIR.caseStmt(self.className+propIVarName.snakeCaseToCamelCase()+"InternalType"+ObjCADTRenderer.objectName(schema)) {[
-                                    "[\(dictionary) setObject:[\(propIVarName) dictionaryRepresentation] forKey:@\"\(param)\"];"
+                            let propName = ObjCADTRenderer.objectName(schema)
+                            let objcClass = self.objcClassNameFromSchema(ObjCADTRenderer.objectName(schema), schema)
+                            return ObjCIR.caseStmt(self.className+propIVarName.snakeCaseToCamelCase()+"InternalType"+propName) {[
+                                "[\(dictionary) setObject:[(\(objcClass) *)\(propIVarName) dictionaryRepresentation] forKey:@\"\(param)\"];"
                                 ]}
                         }
                     }

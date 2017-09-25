@@ -64,31 +64,31 @@ extension ObjCFileRenderer {
         return Set(rootSchema.properties.values.map { $0.schema }.flatMap(referencedClassNames))
     }
 
-    func objcClassFromSchema(_ param: String, _ schema: Schema) -> String {
+    func objcClassNameFromSchema(_ param: String, _ schema: Schema) -> String {
         switch schema {
         case .array(itemType: .none):
-            return "NSArray *"
+            return "NSArray"
         case .array(itemType: .some(let itemType)) where itemType.isObjCPrimitiveType:
             // Objective-C primitive types are represented as NSNumber
-            return "NSArray<NSNumber /* \(itemType.debugDescription) */ *> *"
+            return "NSArray<NSNumber /* \(itemType.debugDescription) */ *>"
         case .array(itemType: .some(let itemType)):
-            return "NSArray<\(objcClassFromSchema(param, itemType))> *"
+            return "NSArray<\(objcClassFromSchema(param, itemType))>"
         case .map(valueType: .none):
-            return "NSDictionary *"
+            return "NSDictionary"
         case .map(valueType: .some(let valueType)) where valueType.isObjCPrimitiveType:
-            return "NSDictionary<NSString *, NSNumber /* \(valueType.debugDescription) */ *> *"
+            return "NSDictionary<NSString *, NSNumber /* \(valueType.debugDescription) */ *>"
         case .map(valueType: .some(let valueType)):
-            return "NSDictionary<NSString *, \(objcClassFromSchema(param, valueType))> *"
+            return "NSDictionary<NSString *, \(objcClassFromSchema(param, valueType))>"
         case .string(format: .none),
              .string(format: .some(.email)),
              .string(format: .some(.hostname)),
              .string(format: .some(.ipv4)),
              .string(format: .some(.ipv6)):
-            return "NSString *"
+            return "NSString"
         case .string(format: .some(.dateTime)):
-            return "NSDate *"
+            return "NSDate"
         case .string(format: .some(.uri)):
-            return "NSURL *"
+            return "NSURL"
         case .integer:
             return "NSInteger"
         case .float:
@@ -98,16 +98,26 @@ extension ObjCFileRenderer {
         case .enumT:
             return enumTypeName(propertyName: param, className: className)
         case .object(let objSchemaRoot):
-            return "\(objSchemaRoot.className(with: params)) *"
+            return "\(objSchemaRoot.className(with: params))"
         case .reference(with: let ref):
             switch ref.force() {
             case .some(.object(let schemaRoot)):
-                return objcClassFromSchema(param, .object(schemaRoot))
+                return objcClassNameFromSchema(param, .object(schemaRoot))
             default:
                 fatalError("Bad reference found in schema for class: \(className)")
             }
         case .oneOf(types:_):
-            return "\(className)\(param.snakeCaseToCamelCase()) *"
+            return "\(className)\(param.snakeCaseToCamelCase())"
+        }
+    }
+
+    func objcClassFromSchema(_ param: String, _ schema: Schema) -> String {
+        let className = objcClassNameFromSchema(param, schema)
+        switch schema {
+        case .integer, .float, .boolean, .enumT:
+            return className
+        default:
+            return className + " *"
         }
     }
 }
